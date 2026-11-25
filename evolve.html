@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mutant Evolusi (EVO) — Bakar 2 Mutant, Jadi 1 Evolusi</title>
+<style>
+  body { font-family: system-ui, sans-serif; background:#0d1117; color:#e6edf3; margin:0; padding:20px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  h2 { font-size:16px; margin:0 0 8px; }
+  .sub { color:#8b949e; font-size:13px; margin-bottom:16px; word-break:break-all; }
+  .card { background:#161b22; border:1px solid #30363d; border-radius:12px; padding:16px; margin-bottom:14px; }
+  button { display:block; width:100%; padding:16px; font-size:17px; font-weight:600; border:0; border-radius:10px; margin:10px 0; background:#1f6feb; color:#fff; }
+  button:disabled { background:#30363d; color:#8b949e; }
+  button.green { background:#238636; }
+  button.red { background:#b62324; }
+  input { display:block; width:100%; box-sizing:border-box; padding:14px; font-size:16px; border:1px solid #30363d; border-radius:10px; margin:8px 0; background:#0d1117; color:#e6edf3; }
+  .status { white-space:pre-wrap; font-size:14px; line-height:1.5; min-height:44px; }
+  .warn { color:#f0b429; }
+  .ok { color:#3fb950; }
+  .err { color:#f85149; }
+  code { word-break:break-all; font-size:12px; color:#8b949e; }
+  a { color:#58a6ff; word-break:break-all; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<h1>Mutant Evolusi (EVO)</h1>
+<div class="sub">Bakar <b>2 Mutant</b> → terima <b>1 Mutant Evolusi</b>. Tingkat acak on-chain: Common 60% · Rare 25% · Epic 10% · Legendary 4% · Mythic 1%. Suplai maksimum 500.<br>Jaringan: Robinhood Chain (4663)</div>
+
+<div class="card">
+  <button id="btnConnect">Hubungkan Wallet</button>
+  <div id="walletInfo" class="status"></div>
+</div>
+
+<div class="card">
+  <h2>Status Evolusi</h2>
+  <div class="sub">Kontrak Mutant (yang dibakar): <code>0xAF276214bF5e7098E1d50c62C35970bc9bd26424</code><br>Kontrak Evolusi: <code id="evoAddrText"></code></div>
+  <div id="evoStatus" class="status">Memeriksa status evolusi…</div>
+</div>
+
+<div class="card">
+  <h2>Evolusi Mutant Saya</h2>
+  <div id="holderInfo" class="status">Hubungkan wallet dulu untuk melihat saldo Mutant kamu.</div>
+  <input id="inputA" type="number" min="1" placeholder="Nomor token Mutant pertama (mis. 12)">
+  <input id="inputB" type="number" min="1" placeholder="Nomor token Mutant kedua (mis. 345)">
+  <button id="btnApprove" disabled>1. Setujui (izinkan kontrak Evolusi memindahkan Mutant)</button>
+  <button id="btnEvolve" class="red" disabled>2. Evolusi — Bakar 2 Mutant, Terima 1 Evolusi</button>
+  <div id="evolveTx" class="status"></div>
+</div>
+
+<div class="card hidden" id="adminCard">
+  <h2>Panel Pemilik (Admin)</h2>
+  <div class="sub">Hanya tampil untuk wallet pemilik kontrak Evolusi.</div>
+  <input id="inputBaseURI" type="text">
+  <button id="btnBase" class="green">Pasang Alamat Metadata (setBaseURI)</button>
+  <button id="btnOpen" class="green">Buka Jendela Evolusi 7 Hari (openEvolution)</button>
+  <div id="adminTx" class="status"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script>
+// ══════════════════════════════════════════════════════════════════════════
+// KONFIG — EDIT DI SINI SETELAH DEPLOY
+// EVOLUSI di bawah ini adalah ALAMAT PREDIKSI hasil CREATE dari wallet
+// deployer (nonce 3, dihitung 2026-11-26 lewat deploy.mjs --dry-run).
+// Setelah deploy sungguhan, WAJIB cek alamat kontrak yang lahir:
+//   • bila sama → tidak perlu diubah;
+//   • bila beda → ganti nilai EVOLUSI di bawah ini dengan alamat aslinya,
+//     lalu push ulang berkas ini.
+// Halaman juga memeriksa sendiri: bila di alamat ini belum ada kode kontrak,
+// status akan menampilkan peringatan "belum ter-deploy".
+// ══════════════════════════════════════════════════════════════════════════
+const KONFIG = {
+  EVOLUSI:   "0x96d9da45DE0337DFD4065b90C1CD6c85BCB7B6C6", // ← GANTI bila alamat deploy berbeda
+  MUTANT:    "0xAF276214bF5e7098E1d50c62C35970bc9bd26424", // Mutant Drop (SeaDrop)
+  BASE_URI:  "https://lampardkarunia.github.io/mutant-evolusi-metadata/",
+  CHAIN_ID:  "0x1237", // 4663
+  RPC:       "https://rpc.mainnet.chain.robinhood.com"
+};
+const TIER_NAMES = ["Common", "Rare", "Epic", "Legendary", "Mythic"];
+const ABI_MUTANT = [
+  "function balanceOf(address owner) view returns (uint256)",
+  "function ownerOf(uint256 tokenId) view returns (address)",
+  "function isApprovedForAll(address owner, address operator) view returns (bool)",
+  "function setApprovalForAll(address operator, bool approved)"
+];
+const ABI_EVO = [
+  "function owner() view returns (address)",
+  "function evolutionOpen() view returns (bool)",
+  "function evolveStart() view returns (uint256)",
+  "function totalMinted() view returns (uint256)",
+  "function tierOf(uint256 tokenId) view returns (uint8)",
+  "function tokenURI(uint256 tokenId) view returns (string)",
+  "function evolve(uint256 idA, uint256 idB)",
+  "function setBaseURI(string newBaseURI)",
+  "function openEvolution()",
+  "event Evolved(address indexed user, uint256 burnedA, uint256 burnedB, uint256 newTokenId, uint8 tier, uint256 artIndex)",
+  "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)"
+];
+const $ = id => document.getElementById(id);
+let signer = null, myAddr = null, mutant = null, evo = null, evoOwner = null;
+
+$("evoAddrText").textContent = KONFIG.EVOLUSI;
+$("inputBaseURI").value = KONFIG.BASE_URI;
+
+async function refreshStatus() {
+  const st = $("evoStatus");
+  try {
+    const ro = new ethers.JsonRpcProvider(KONFIG.RPC);
+    const code = await ro.getCode(KONFIG.EVOLUSI);
+    if (!code || code === "0x") {
+      st.innerHTML = '<span class="warn"><b>Kontrak Evolusi BELUM ter-deploy</b> di alamat konfigurasi.</span>\nHalaman ini siap pakai begitu kontrak ter-deploy dan alamat di KONFIG sudah benar.';
+      return;
+    }
+    const c = new ethers.Contract(KONFIG.EVOLUSI, ABI_EVO, ro);
+    const [open, start, minted, owner] = await Promise.all([
+      c.evolutionOpen(), c.evolveStart(), c.totalMinted(), c.owner()
+    ]);
+    evoOwner = owner;
+    let text = "Sudah ter-evolusi: <b>" + minted.toString() + " / 500</b>\n";
+    if (start === 0n) {
+      text += 'Jendela evolusi: <span class="warn"><b>BELUM DIBUKA</b></span> (menunggu pemilik menekan openEvolution)';
+    } else {
+      const endMs = Number(start + 7n * 24n * 3600n) * 1000;
+      text += "Jendela evolusi: " + (open
+        ? '<span class="ok"><b>SEDANG BUKA</b></span>'
+        : '<span class="err"><b>SUDAH TUTUP</b></span>') +
+        "\nBerakhir: " + new Date(endMs).toLocaleString("id-ID");
+    }
+    st.innerHTML = text;
+    maybeShowAdmin();
+  } catch (e) {
+    st.innerHTML = '<span class="err">Gagal membaca status evolusi. Cek koneksi lalu muat ulang halaman.</span>';
+  }
+}
+
+function maybeShowAdmin() {
+  if (myAddr && evoOwner && myAddr.toLowerCase() === evoOwner.toLowerCase()) {
+    $("adminCard").classList.remove("hidden");
+    $("btnBase").disabled = false;
+    $("btnOpen").disabled = false;
+  } else {
+    $("adminCard").classList.add("hidden");
+  }
+}
+
+async function refreshHolder() {
+  const info = $("holderInfo");
+  if (!signer || !myAddr) return;
+  try {
+    const bal = await mutant.balanceOf(myAddr);
+    const approved = await mutant.isApprovedForAll(myAddr, KONFIG.EVOLUSI);
+    info.innerHTML = "Saldo Mutant kamu: <b>" + bal.toString() + "</b>\n" +
+      (approved
+        ? '<span class="ok">Persetujuan SUDAH diberikan ✔ — langsung ke langkah 2.</span>'
+        : '<span class="warn">Persetujuan BELUM diberikan — lakukan langkah 1 dulu.</span>');
+    $("btnApprove").disabled = approved;
+    $("btnEvolve").disabled = bal === 0n;
+  } catch (e) {
+    info.innerHTML = '<span class="err">Gagal membaca saldo Mutant: ' + (e.shortMessage || e.message) + '</span>';
+  }
+}
+
+async function ensureChain() {
+  const cur = await window.ethereum.request({ method: "eth_chainId" });
+  if (cur === KONFIG.CHAIN_ID) return;
+  try {
+    await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: KONFIG.CHAIN_ID }] });
+  } catch (e) {
+    if (e.code === 4902 || (e.data && e.data.originalError && e.data.originalError.code === 4902)) {
+      await window.ethereum.request({ method: "wallet_addEthereumChain", params: [{
+        chainId: KONFIG.CHAIN_ID, chainName: "Robinhood Chain",
+        nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+        rpcUrls: [KONFIG.RPC]
+      }]});
+    } else { throw e; }
+  }
+}
+
+$("btnConnect").onclick = async () => {
+  const info = $("walletInfo");
+  if (!window.ethereum) {
+    info.innerHTML = '<span class="err">Wallet tidak terdeteksi. Buka halaman ini dari browser di dalam aplikasi Bitget Wallet (menu Discover / DApps), bukan dari Chrome biasa.</span>';
+    return;
+  }
+  try {
+    info.textContent = "Menghubungkan…";
+    await ensureChain();
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    await provider.send("eth_requestAccounts", []);
+    signer = await provider.getSigner();
+    myAddr = await signer.getAddress();
+    mutant = new ethers.Contract(KONFIG.MUTANT, ABI_MUTANT, signer);
+    evo = new ethers.Contract(KONFIG.EVOLUSI, ABI_EVO, signer);
+    info.innerHTML = '<span class="ok">Terhubung ✔</span>\n' + myAddr;
+    await refreshStatus();
+    await refreshHolder();
+    maybeShowAdmin();
+  } catch (e) {
+    info.innerHTML = '<span class="err">Gagal menghubungkan: ' + (e.shortMessage || e.message) + '</span>';
+  }
+};
+
+async function runTx(statusId, label, fn, after) {
+  const st = $(statusId);
+  try {
+    st.textContent = label + " — silakan konfirmasi di wallet kamu…";
+    const tx = await fn();
+    st.textContent = label + " — transaksi terkirim, menunggu selesai…\nTx: " + tx.hash;
+    const receipt = await tx.wait();
+    st.innerHTML = '<span class="ok">' + label + " — BERHASIL ✔</span>\nTx: " + tx.hash;
+    if (after) await after(receipt);
+    return receipt;
+  } catch (e) {
+    st.innerHTML = '<span class="err">' + label + " — gagal/dibatalkan: " + (e.shortMessage || e.message) + '</span>';
+    return null;
+  }
+}
+
+$("btnApprove").onclick = () =>
+  runTx("evolveTx", "Memberi persetujuan", () => mutant.setApprovalForAll(KONFIG.EVOLUSI, true), refreshHolder);
+
+$("btnEvolve").onclick = async () => {
+  const st = $("evolveTx");
+  const a = $("inputA").value.trim(), b = $("inputB").value.trim();
+  if (!a || !b || a === b) {
+    st.innerHTML = '<span class="err">Isi DUA nomor token Mutant yang berbeda.</span>';
+    return;
+  }
+  const receipt = await runTx("evolveTx", "Evolusi (bakar #" + a + " + #" + b + ")",
+    () => evo.evolve(BigInt(a), BigInt(b)), refreshHolder);
+  if (!receipt) return;
+  // Baca hasil dari event Evolved pada receipt; cadangan: event Transfer dari alamat nol.
+  let newId = null, tier = null;
+  for (const log of receipt.logs) {
+    if (log.address.toLowerCase() !== KONFIG.EVOLUSI.toLowerCase()) continue;
+    try {
+      const parsed = evo.interface.parseLog(log);
+      if (parsed && parsed.name === "Evolved") {
+        newId = parsed.args.newTokenId; tier = Number(parsed.args.tier);
+      }
+      if (parsed && parsed.name === "Transfer" && parsed.args.from === ethers.ZeroAddress && newId === null) {
+        newId = parsed.args.tokenId;
+      }
+    } catch (_) { /* log bukan dari ABI ini */ }
+  }
+  if (newId !== null) {
+    try {
+      if (tier === null) tier = Number(await evo.tierOf(newId));
+      const uri = await evo.tokenURI(newId);
+      st.innerHTML += "\n\n" + '<span class="ok"><b>Selamat! Kamu menerima Mutant Evolusi #' + newId.toString() +
+        " — tingkat: " + TIER_NAMES[tier] + "</b></span>" +
+        (uri ? '\nMetadata: <a href="' + uri + '" target="_blank">' + uri + "</a>" : "\n(Metadata belum terpasang — pemilik belum setBaseURI.)");
+    } catch (e) {
+      st.innerHTML += "\nEvolusi berhasil (token #" + newId.toString() + "), tapi gagal membaca tingkatnya.";
+    }
+  }
+  refreshStatus();
+};
+
+$("btnBase").onclick = () =>
+  runTx("adminTx", "Pasang alamat metadata", () => evo.setBaseURI($("inputBaseURI").value.trim()), refreshStatus);
+$("btnOpen").onclick = () =>
+  runTx("adminTx", "Membuka jendela evolusi 7 hari", () => evo.openEvolution(), refreshStatus);
+
+refreshStatus();
+</script>
+</body>
+</html>
