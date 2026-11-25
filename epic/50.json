@@ -1,0 +1,15 @@
+{
+  "name": "Mutant Evolusi Epic #50",
+  "description": "Mutant Evolusi — hasil evolusi membakar 2 Mutant. Tingkat: Epic.",
+  "image": "https://lampardkarunia.github.io/mutant-evolusi-metadata/images/epic/50.webp",
+  "attributes": [
+    {
+      "trait_type": "Tier",
+      "value": "Epic"
+    },
+    {
+      "trait_type": "Art Index",
+      "value": 50
+    }
+  ]
+}
