@@ -1,0 +1,15 @@
+{
+  "name": "Mutant Evolusi Legendary #7",
+  "description": "Mutant Evolusi — hasil evolusi membakar 2 Mutant. Tingkat: Legendary.",
+  "image": "https://lampardkarunia.github.io/mutant-evolusi-metadata/images/legendary/7.webp",
+  "attributes": [
+    {
+      "trait_type": "Tier",
+      "value": "Legendary"
+    },
+    {
+      "trait_type": "Art Index",
+      "value": 7
+    }
+  ]
+}
