@@ -1,0 +1,15 @@
+{
+  "name": "Mutant Evolusi Rare #63",
+  "description": "Mutant Evolusi — hasil evolusi membakar 2 Mutant. Tingkat: Rare.",
+  "image": "https://lampardkarunia.github.io/mutant-evolusi-metadata/images/rare/63.webp",
+  "attributes": [
+    {
+      "trait_type": "Tier",
+      "value": "Rare"
+    },
+    {
+      "trait_type": "Art Index",
+      "value": 63
+    }
+  ]
+}
